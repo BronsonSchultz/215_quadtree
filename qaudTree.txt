@@ -1,0 +1,414 @@
+# Bronson Schultz, 11231230, bcs269
+# CMPT 215, Assignment 2 question 5
+
+.data
+
+intPrompt: .asciiz "Please enter an integer (no greater than 25): "
+dataPrompt1: .asciiz "Please enter "
+dataPrompt2: .asciiz " pairs of data. x first, then y: "
+searchPrompt: .asciiz "Please enter a pair of x,y values: "
+containsPrompt: .asciiz "That pair of values appears in the tree\n"
+notContainsPrompt: .asciiz "That pair of values does not appear in the tree\n"
+treeDeletedMessage: .asciiz "The tree was successfully deleted\n"
+
+head: .word 0 # the head of the free list
+root: .word 0 # the root of the tree
+
+
+.align 2 
+nodes: .space 600 # space for a 25 empty nodes
+dataArray: .space 200 
+
+.text
+
+#	s0: loop counter for the main program (namely 2)
+#	s1: holds the user's choice of amount of nodes
+#	s2: pointer to dataArray
+#	s3: copy of s1 to be multiplied by 2
+#	s4: save the x value to be searched for
+#	s5: save the y value to be searched for
+#	s6: loop counter for entering data
+main:
+	
+	li $s0, 2
+	promptLoop:
+		beqz $s0, terminate
+		li $v0, 4	# prompt the user for an integer
+		la $a0, intPrompt
+		syscall
+		
+		li $v0, 5	# read and save their choice
+		syscall
+		move $s1, $v0
+		
+		la $a0, nodes	# create a free list of s1 nodes
+		move $a1, $s1
+		jal init
+		sw $v0, head
+		
+		li $v0, 4	# prompt the user for s1 pairs of data
+		la $a0, dataPrompt1
+		syscall
+		
+		li $v0, 1
+		move $a0, $s1
+		syscall
+		
+		li $v0, 4
+		la $a0, dataPrompt2
+		syscall
+		
+		sll $s3, $s1, 1	# have the user enter in 2 * s1 integers
+		la $s2, dataArray	# store the data in an array
+		getData:
+			beqz $s3, doneData
+			li $v0, 5
+			syscall
+			sw $v0, 0($s2)
+			addi $s3, -1
+			addi $s2, 4
+			j getData
+	
+		doneData:
+			la $s2, dataArray	# reset s2 to point back at the beginning of the dataArray
+			
+			move $s6, $s1
+			la $a2, root
+			la $a3, head
+			insertDataLoop:
+				beqz $s6, doneInsert
+				lw $a0, 0($s2)
+				lw $a1, 4($s2)
+
+				jal insert
+				
+				addi $s2, $s2, 8
+				addi $s6, $s6, -1
+				j insertDataLoop
+				
+	doneInsert:
+	li $v0, 4
+	la $a0, searchPrompt # prompt the user for an x and a y
+	syscall
+		
+	li $v0, 5
+	syscall
+	move $s4, $v0
+	
+	li $v0, 5
+	syscall
+	move $s5, $v0
+		
+	move $a0, $s4 # search the tree for the user's choice
+	move $a1, $s5
+	la $a2, root
+	jal search
+		
+	beqz $v0, printNotFound	# if v0 is 0 then the pair wasn't found
+		
+	li $v0, 4	# else it was found
+	la $a0, containsPrompt
+	syscall
+	j deleteTheTree
+	
+	printNotFound:
+		li $v0, 4
+		la $a0, notContainsPrompt
+		syscall
+
+	deleteTheTree:
+		la $a0, root
+		la $a1, head
+		jal deletetree
+		sw $zero, root
+		
+		li $v0, 4
+		la $a0, treeDeletedMessage
+		syscall
+
+	addi $s0, $s0, -1
+	j promptLoop
+	terminate:
+		li $v0, 10
+		syscall	
+		
+# procedure deletetree deletes all the children of a given node and returns the empty nodes to the free list and sets 
+# the root to 0
+# procedure arguments:
+#	$a0 - the word containing the address of the root of the tree
+#	$a1 - the word containing the address of the head of the free list	
+# caller saved registers used are:
+#	
+deletetree:
+	lw $t0, 0($a0)
+	
+	# base case
+	beqz $t0, deleteTree_return
+		
+
+	addi $sp, $sp, -12
+	sw $ra, 0($sp)
+	sw $a0, 4($sp)	
+	sw $a1, 8($sp)
+	
+	# NW recursive case
+	addi $a0, $t0, 8
+	jal deletetree
+	
+	lw $a0, 4($sp)
+	lw $a1, 8($sp)
+	lw $t0, 0($a0)	
+
+	# NE recursive case
+	addi $a0, $t0, 12
+	jal deletetree
+	
+	lw $a0, 4($sp)
+	lw $a1, 8($sp)
+	lw $t0, 0($a0)	
+	
+	# SE recursive case
+	addi $a0, $t0, 16
+	
+	lw $a0, 4($sp)
+	lw $a1, 8($sp)
+	lw $t0, 0($a0)	
+	
+	# SW recursive case
+	addi $a0, $t0, 20
+	jal deletetree
+	
+	lw $a0, 4($sp)
+	lw $a1, 8($sp)
+	lw $t0, 0($a0)
+	
+	move $a0, $a1
+	move $a1, $t0
+	#sw $ra 0($sp)
+	jal free
+	
+	sw $zero, 0($a0)	
+		
+	lw $ra, 0($sp)
+	addi $sp, $sp, 12
+	
+	deleteTree_return:
+		jr $ra
+		
+# procedure search that returns 1 of a pair of x y values appears in a quadtree or not.
+# procedure arguments:
+#	$a0 - x half of the pair to search for
+#	$a1 - y half of the pair to search for
+#	$a2 - word containg the address of the root of th tree
+# caller saved registers are:
+#	$t1 - pointer that walks throught the tree
+#	$t2 - boolean for x value comparisons 
+#	$t3 - boolean for y value comparisons
+#	$t5	- x value of the current node
+#	$t6	- y value of current node
+#	$t8 - value of the current nodes child so either an address if the child exists or 0 if it doesn't
+
+search:  		
+	#move $t1, $a2 # pointer that starts at the root
+	lw $t1, 0($a2)
+	beqz $t1, empty # if the tree is empty than end search
+	
+	searchCurrentNode:
+		beqz $t1, empty
+		lw $t5, 0($t1)
+		lw $t6, 4($t1)
+	
+		beq $a0, $t5, sameXs
+	
+	
+		notFoundHere:
+			sgt $t2, $a0, $t5 # 1 if the new x is greater then node x
+			sge $t3, $a1, $t6 # 1 if the new y is greater or equal to node y
+			add $t3, $t3, $t2 
+			beq $t3, 2, search_NE # the pair will be found in the NE direction
+				
+			sge $t2, $a0, $t5 # 1 if the new x is lesser or equal to node x
+			slt $t3, $a1, $t6 # 1 if the new y is less than node y
+			add $t3, $t3, $t2
+			beq $t3, 2, search_SE # the pair will be found in the SE direction
+				
+			sle $t2, $a0, $t5 # 1 if new x is less than node x
+			sgt $t3, $a1, $t6 # 1 if the new y is less than or equal to node y
+			add $t3, $t3, $t2
+			beq $t3, 2, search_NW # the pair will be found in the NW direction
+					
+			slt $t2, $a0, $t5 # 1 if the new x is less than or equal to node x
+			sle $t3, $a1, $t6 # 1 if the new y is greater than node y
+			add $t3, $t3, $t2
+			beq $t3, 2, search_SW # the pair will be foundin the SW direction
+			
+			search_NW:				
+				lw $t1, 8($t1)
+				#add $t1, 8
+				j searchCurrentNode
+			search_NE:
+				lw $t1, 12($t1)
+				#add $t1, 12
+				j searchCurrentNode
+			search_SE:
+				lw $t1, 16($t1)
+				#add $t1, 16						
+				j searchCurrentNode
+			search_SW:						
+				lw $t1, 20($t1)
+				#add $t1, 20
+				j searchCurrentNode				
+
+				
+		sameXs:
+			beq $a1, $t6, found
+			j notFoundHere
+		empty: 
+			li $v0, 0
+			j search_return
+		found:
+			li $v0, 1 # x and y was found so return 1
+		search_return: 
+			jr $ra
+	
+# procedure insert to remove 1 node from the free list and fill it with data and move it into the quad tree
+# procedure arguments:
+#	$a0 - x value 
+#	$a1 - y value
+#	$a2 - pointer to the root of the quadtree
+#	$a3 - pointer to the beginning of the free list
+# caller saved registers used by the procedure:
+#	$t0 - copy of x value so alloc can use a0
+#	$t1 - copy of pointer to the root that can walk through the tree
+#	$t2 - boolean result for x value 
+# 	$t3 - boolean result for y value 
+#	$t4 - pointer to empty node from alloc
+#	$t5 - x value of the current node
+#	$t6 - y vlue of the current node
+#	$t7 - pointer to child of node
+#	$t8 - value of the current nodes child so either an address if the child exists or 0 if it doesn't
+#	$t9	- save t0 so alloc can use t0
+
+insert: 
+	move $t0, $a0 # save the x value so a0 can be used elsewhere by alloc
+	lw $t1, 0($a2) # pointer that starts at the root
+	
+	createNode:
+		move $a0, $a3	# move the arguments around
+	
+		addi $sp, $sp, -4	# make room in the stack for the return address 
+		sw $ra, 0($sp)
+		move $t9, $t0
+		jal alloc
+		move $t4, $v0	# save the pointer to the new empty node
+		move $t0, $t9
+		
+		sw $t0, 0($t4) # store x and y into the new node
+		sw $a1, 4($t4)
+	
+	beqz $t1, emptyTree # if the tree is empty than point the root to the new node
+	j travelThroughTree
+	
+	insertNodeHere:
+		sw $t4, 0($t1)
+		j return
+	emptyTree:
+		sw $t4, 0($a2) # root points to the new node
+		j return	# insert is complete, procedure is done
+	
+		travelThroughTree:
+			lw $t8, 0($t1)
+			beqz $t8, insertNodeHere
+			lw $t5, 0($t1)
+			lw $t6, 4($t1)
+	
+			sgt $t2, $t0, $t5 # 1 if the new x is greater then node x
+			sge $t3, $a1, $t6 # 1 if the new y is greater or equal to node y
+			add $t3, $t3, $t2 
+			beq $t3, 2, NE # the new node needs to be inserted in the NE direction
+				
+			sge $t2, $t0, $t5 # 1 if the new x is lesser or equal to node x
+			slt $t3, $a1, $t6 # 1 if the new y is less than node y
+			add $t3, $t3, $t2
+			beq $t3, 2, SE # the new node needs to be inserted in the SE direction
+				
+			sle $t2, $t0, $t5 # 1 if new x is less than node x
+			sgt $t3, $a1, $t6 # 1 if the new y is less than or equal to node y
+			add $t3, $t3, $t2
+			beq $t3, 2, NW # the new node needs to be inserted in the NW direction
+					
+			slt $t2, $t0, $t5 # 1 if the new x is less than or equal to node x
+			sle $t3, $a1, $t6 # 1 if the new y is greater than node y
+			add $t3, $t3, $t2
+			beq $t3, 2, SW # the new node needs to be inserted in the SW direction
+			
+			NW:					
+				add $t1, 8
+				j travelThroughTree
+			NE:
+				add $t1, 12
+				j travelThroughTree
+			SE:
+				add $t1, 16
+				j travelThroughTree
+			SW:
+				add $t1, 20
+				j travelThroughTree				
+	
+		return: 
+			lw $ra, 0($sp)	# get the original return address from the stack 
+			addi $sp, $sp, 4
+			jr $ra
+
+# procedure init initializes the free list
+# procedure arguments as follows:
+#   $a0 - address of block of memory to be used for free list
+#   $a1 - desired size of free list (number of nodes)
+# procedure returns pointer to first node in free list
+init:	  	move $v0,$a0
+	  	blez $a1,init_r
+init_l:   	sw $zero,0($a0)
+	  	sw $zero,4($a0)
+	  	sw $zero,8($a0)
+	  	sw $zero,12($a0)
+	  	sw $zero,16($a0)
+	  	addi $a0,$a0,24
+	  	sw $a0,-4($a0)
+	  	addi $a1,$a1,-1
+	  	bne $zero,$a1,init_l
+	  	sw $zero,-4($a0)
+init_r:   	jr $ra
+
+# procedure alloc gets a node from the free list
+# procedure argument as follows:
+#   $a0 - address of word containing the address of the first node in free list
+# procedure returns pointer to unlinked node
+alloc:		lw $v0,0($a0)
+	  	beq $v0,$zero,alloc_r  	#if free list is empty, return 0
+	 	lw $t0,20($v0)
+	  	sw $t0,0($a0)
+	  	sw $zero,20($v0)
+alloc_r:  	jr $ra
+
+
+# procedure free returns a node to the free list
+# procedure arguments as follows:
+#   $a0 - address of word containing the address of the first node in free list
+#   $a1 - address of node that should be added to free list
+free:		lw $t0,0($a0)
+	  	sw $a1,0($a0)
+	  	sw $t0,20($a1)
+	  	sw $zero,16($a1)
+	  	sw $zero,12($a1)
+	  	sw $zero,8($a1)
+	  	sw $zero,4($a1)
+	  	sw $zero,0($a1)
+	  	jr $ra
+		
+		
+		
+		
+		
+		
+		
+		
